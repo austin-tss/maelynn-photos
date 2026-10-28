@@ -1,20 +1,91 @@
-// Mae Lynn Photos - booking/contact form receiver.
-// Paste into the "Mae Lynn Photos Bookings" sheet: Extensions > Apps Script.
-// Deploy > New deployment > Web app > Execute as: Me, Who has access: Anyone. Copy the /exec URL.
+// Mae Lynn Photos - bookings backend (Google Apps Script web app bound to the "Mae Lynn Photos Bookings" sheet).
+// Setup: Extensions > Apps Script in the sheet, paste this file, run setAdminPin() once (see local-only setup file),
+// then Deploy > New deployment > Web app, Execute as: Me, Who has access: Anyone. Put the /exec URL in config.js.
 const SHEET_ID = '1Pz3o0D_RF8LwV-VDrtF_ezInFPTL0SR6QCleNEfaq3s';
+const TAB = 'Bookings';
 const COLS = ['received','status','source','package','name','email','phone','people','date','time','alt_date','outfits','location','addons','outside_tlh','occasion','found','notes','admin_notes'];
-function doPost(e) {
-  const p = (e && e.parameter) || {};
-  if (p.website) return out({ok:true}); // spam honeypot
-  if (!p.name || !(p.email || p.phone)) return out({ok:false,error:'missing fields'});
-  const addons = (e.parameters && e.parameters.addons) ? e.parameters.addons.join(', ') : (p.addons || '');
-  const row = COLS.map(k => k==='received' ? Utilities.formatDate(new Date(),'America/New_York','yyyy-MM-dd HH:mm')
-    : k==='status' ? 'new' : k==='addons' ? addons : String(p[k]||'').slice(0,3000));
-  const lock = LockService.getScriptLock(); lock.waitLock(10000);
-  try { SpreadsheetApp.openById(SHEET_ID).getSheetByName('Bookings').appendRow(row); } finally { lock.releaseLock(); }
-  try { MailApp.sendEmail(Session.getEffectiveUser().getEmail(), 'New ' + (p.source||'booking') + ': ' + p.name,
-        COLS.map(k=>k+': '+(k==='addons'?addons:(p[k]||''))).join('\n')); } catch (err) {}
-  return out({ok:true});
+const STATUSES = ['new','confirmed','completed','cancelled'];
+const MAX_FAILS = 5, LOCK_MIN = 15, SESSION_SEC = 6 * 3600;
+
+// One-time: call with the PIN from the editor (never commit the PIN).
+function setAdminPin(pin) {
+  if (!/^\d{6}$/.test(String(pin || ''))) throw new Error('PIN must be 6 digits');
+  PropertiesService.getScriptProperties().setProperty('ADMIN_PIN', String(pin));
 }
-function doGet() { return out({ok:true, service:'Mae Lynn Photos bookings'}); }
-function out(o){ return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
+
+function sheet() { return SpreadsheetApp.openById(SHEET_ID).getSheetByName(TAB); }
+function out(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
+function doGet() { return out({ ok: true, service: 'Mae Lynn Photos bookings' }); }
+
+function doPost(e) {
+  let body = {};
+  try { if (e.postData && /json|text\/plain/.test(e.postData.type)) body = JSON.parse(e.postData.contents || '{}'); } catch (err) {}
+  if (body.action) return out(admin(body));
+  return out(submit(e));
+}
+
+function submit(e) {
+  const p = e.parameter || {};
+  if (p.website) return { ok: true };
+  if (!p.name || !(p.email || p.phone)) return { ok: false, error: 'missing fields' };
+  const addons = (e.parameters && e.parameters.addons) ? e.parameters.addons.join(', ') : (p.addons || '');
+  const row = COLS.map(k => k === 'received' ? Utilities.formatDate(new Date(), 'America/New_York', 'yyyy-MM-dd HH:mm')
+    : k === 'status' ? 'new' : k === 'addons' ? addons : k === 'admin_notes' ? '' : String(p[k] || '').slice(0, 3000));
+  const lock = LockService.getScriptLock(); lock.waitLock(10000);
+  try { sheet().appendRow(row); } finally { lock.releaseLock(); }
+  try { MailApp.sendEmail(Session.getEffectiveUser().getEmail(), 'New ' + (p.source || 'booking') + ': ' + p.name,
+    COLS.map((k, i) => k + ': ' + row[i]).join('\n')); } catch (err) {}
+  return { ok: true };
+}
+
+// ---- Admin API: {action, pin|token, ...} ----
+function admin(b) {
+  const props = PropertiesService.getScriptProperties(), cache = CacheService.getScriptCache();
+  if (b.action === 'login') {
+    const lockedUntil = Number(props.getProperty('LOCKED_UNTIL') || 0);
+    if (Date.now() < lockedUntil) return { ok: false, error: 'locked', minutes: Math.ceil((lockedUntil - Date.now()) / 60000) };
+    const pin = props.getProperty('ADMIN_PIN');
+    if (!pin) return { ok: false, error: 'PIN not set up' };
+    Utilities.sleep(800);
+    if (String(b.pin || '') !== pin) {
+      const fails = Number(props.getProperty('FAILS') || 0) + 1;
+      if (fails >= MAX_FAILS) { props.setProperty('LOCKED_UNTIL', String(Date.now() + LOCK_MIN * 60000)); props.setProperty('FAILS', '0');
+        return { ok: false, error: 'locked', minutes: LOCK_MIN }; }
+      props.setProperty('FAILS', String(fails));
+      return { ok: false, error: 'wrong', left: MAX_FAILS - fails };
+    }
+    props.setProperty('FAILS', '0');
+    const token = Utilities.getUuid() + Utilities.getUuid();
+    cache.put('s:' + token, '1', SESSION_SEC);
+    return { ok: true, token: token };
+  }
+  if (!b.token || !cache.get('s:' + b.token)) return { ok: false, error: 'auth' };
+  cache.put('s:' + b.token, '1', SESSION_SEC);
+  const sh = sheet();
+  const lock = LockService.getScriptLock(); lock.waitLock(10000);
+  try {
+    if (b.action === 'list') return { ok: true, rows: rows(sh) };
+    if (b.action === 'create') {
+      const d = b.data || {}; if (STATUSES.indexOf(d.status) < 0) d.status = 'new';
+      d.received = Utilities.formatDate(new Date(), 'America/New_York', 'yyyy-MM-dd HH:mm'); d.source = d.source || 'admin';
+      sh.appendRow(COLS.map(k => String(d[k] || ''))); return { ok: true };
+    }
+    const r = findRow(sh, b.id);
+    if (!r) return { ok: false, error: 'not found (refresh and try again)' };
+    if (b.action === 'update') {
+      const d = b.data || {}; if (d.status && STATUSES.indexOf(d.status) < 0) delete d.status;
+      const cur = sh.getRange(r, 1, 1, COLS.length).getValues()[0];
+      COLS.forEach((k, i) => { if (k !== 'received' && d[k] !== undefined) cur[i] = String(d[k]).slice(0, 5000); });
+      sh.getRange(r, 1, 1, COLS.length).setValues([cur]); return { ok: true };
+    }
+    if (b.action === 'delete') { sh.deleteRow(r); return { ok: true }; }
+    return { ok: false, error: 'unknown action' };
+  } finally { lock.releaseLock(); }
+}
+function rows(sh) {
+  const n = sh.getLastRow(); if (n < 2) return [];
+  return sh.getRange(2, 1, n - 1, COLS.length).getDisplayValues().map((v, i) => {
+    const o = { row: i + 2 }; COLS.forEach((k, j) => o[k] = v[j]); o.id = o.received + '|' + o.name + '|' + o.email; return o; });
+}
+// Rows are identified by received|name|email so a stale row number never edits the wrong booking.
+function findRow(sh, id) { const all = rows(sh); for (const o of all) if (o.id === id) return o.row; return 0; }

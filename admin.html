@@ -1,0 +1,30 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Bookings Admin - Mae Lynn Photos</title>
+<link href="https://fonts.googleapis.com/css2?family=Gupter&family=Source+Sans+3:wght@300;400;600&display=swap" rel="stylesheet"><link rel="stylesheet" href="static/site.css"><style>body{background:var(--soft)}.top{display:flex;align-items:center;gap:14px;padding:14px 4vw;background:#fff;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.top img{width:54px;height:54px;border-radius:50%}.top .sp{flex:1}.main{padding:24px 4vw}.tabs button{margin-right:6px}
+.bar{display:flex;gap:10px;flex-wrap:wrap;margin:16px 0}.bar input,.bar select{width:auto;flex:1;min-width:150px}
+.stats{display:flex;gap:12px;flex-wrap:wrap}.stat{background:#fff;border-radius:14px;padding:14px 20px;min-width:120px}.stat b{display:block;font-family:Gupter;font-size:28px;color:var(--ink)}
+table{width:100%;border-collapse:collapse;background:#fff;border-radius:14px;overflow:hidden}th,td{padding:11px 12px;text-align:left;border-bottom:1px solid var(--line);font-size:14px}
+th{font-size:11px;letter-spacing:.14em;text-transform:uppercase;font-weight:600;background:#fff8f5}tr.r:hover{background:#fff5f3;cursor:pointer}
+.pill{padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600}.new{background:#ffe3ec;color:#b3426b}.confirmed{background:#ffe9d6;color:#b25b17}.completed{background:#e3f4e6;color:#2e7a3c}.cancelled{background:#eee;color:#777}
+#dlg{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;align-items:flex-start;justify-content:center;overflow:auto;z-index:50;padding:30px 10px}
+#dlg .box{background:#fff;border-radius:18px;max-width:760px;width:100%;padding:28px}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}.cal div{background:#fff;min-height:96px;padding:6px;font-size:12px;border-radius:8px}.cal .h{min-height:auto;background:none;font-weight:600;text-align:center}
+.cal .ev{display:block;margin-top:3px;padding:2px 5px;border-radius:6px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.cal .o{opacity:.4}.cal .today{outline:2px solid var(--accent)}
+@media(max-width:700px){.hide-m{display:none}}</style><style>.kp{position:fixed;inset:0;display:grid;place-items:center;background:linear-gradient(135deg,var(--pink-soft),var(--peach));z-index:60}
+.kp .card{background:#fff;padding:34px 28px;max-width:360px;width:92%;text-align:center;border-radius:24px;box-shadow:0 10px 30px rgba(239,90,147,.15)}
+.pd{display:flex;gap:12px;justify-content:center;margin:18px 0}.pd i{width:16px;height:16px;border-radius:50%;border:2px solid var(--pink);display:block}.pd i.f{background:var(--pink)}
+.pad{display:grid;grid-template-columns:repeat(3,72px);gap:12px;justify-content:center}.pad button{height:72px;border-radius:50%;border:1.5px solid var(--line);background:#fff;font-size:24px;font-family:Gupter,serif;color:var(--ink);cursor:pointer}
+.pad button:active{background:var(--pink-soft)}</style></head><body>
+<div class="kp" id="kp"><div class="card"><img src="static/img/logo.jpg" style="width:96px;height:96px;border-radius:50%;margin:0 auto 10px" alt=""><h2 style="margin:0">Bookings Admin</h2><p style="margin:4px 0 0">Enter your 6-digit PIN</p>
+<p id="msg" style="color:#c0396b;min-height:1.4em;margin:8px 0 0"></p><div class="pd" id="pd"></div><div class="pad" id="pad"></div></div></div>
+<div class="top"><img src="static/img/logo.jpg" alt=""><h3 style="margin:0">Bookings</h3><span class="sp"></span>
+<span class="tabs"><button class="btn dark" id="tList" onclick="tab('list')">List</button><button class="btn" id="tCal" onclick="tab('cal')">Calendar</button></span>
+<button class="btn" onclick="openEdit({})">+ Add booking</button><button class="btn" onclick="csv()">Export CSV</button><a class="btn" href="https://docs.google.com/spreadsheets/d/1Pz3o0D_RF8LwV-VDrtF_ezInFPTL0SR6QCleNEfaq3s/edit" target="_blank">Open Sheet</a><a class="btn" href="index.html" target="_blank">View site</a><button class="btn" onclick="logout()">Log out</button></div>
+<div class="main"><div class="stats" id="stats"></div>
+<div id="list"><div class="bar"><input id="q" placeholder="Search name, email, phone, location, notes..." oninput="render()"><select id="fs" onchange="render()"><option value="">All statuses</option><option>new</option><option>confirmed</option><option>completed</option><option>cancelled</option></select>
+<select id="fp" onchange="render()"><option value="">All types</option></select><select id="fw" onchange="render()"><option value="">Any date</option><option value="up">Upcoming</option><option value="past">Past</option></select></div>
+<div style="overflow:auto"><table><thead><tr><th>Session date</th><th>Name</th><th>Package</th><th class="hide-m">Contact</th><th class="hide-m">Location</th><th>Status</th><th class="hide-m">Received</th></tr></thead><tbody id="rows"></tbody></table></div></div>
+<div id="calv" style="display:none"><div class="bar" style="align-items:center"><button class="btn" onclick="mv(-1)">&larr;</button><h3 id="mon" style="margin:0 12px"></h3><button class="btn" onclick="mv(1)">&rarr;</button></div><div class="cal" id="cal"></div>
+<h3 style="margin-top:26px">Upcoming sessions</h3><div id="upc"></div></div></div>
+<div id="dlg" onclick="if(event.target.id=='dlg')closeD()"><div class="box" id="box"></div></div>
+<script src="config.js"></script><script src="admin.js"></script></body></html>
