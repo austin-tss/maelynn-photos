@@ -1,0 +1,20 @@
+// Mae Lynn Photos - booking/contact form receiver.
+// Paste into the "Mae Lynn Photos Bookings" sheet: Extensions > Apps Script.
+// Deploy > New deployment > Web app > Execute as: Me, Who has access: Anyone. Copy the /exec URL.
+const SHEET_ID = '1Pz3o0D_RF8LwV-VDrtF_ezInFPTL0SR6QCleNEfaq3s';
+const COLS = ['received','status','source','package','name','email','phone','people','date','time','alt_date','outfits','location','addons','outside_tlh','occasion','found','notes','admin_notes'];
+function doPost(e) {
+  const p = (e && e.parameter) || {};
+  if (p.website) return out({ok:true}); // spam honeypot
+  if (!p.name || !(p.email || p.phone)) return out({ok:false,error:'missing fields'});
+  const addons = (e.parameters && e.parameters.addons) ? e.parameters.addons.join(', ') : (p.addons || '');
+  const row = COLS.map(k => k==='received' ? Utilities.formatDate(new Date(),'America/New_York','yyyy-MM-dd HH:mm')
+    : k==='status' ? 'new' : k==='addons' ? addons : String(p[k]||'').slice(0,3000));
+  const lock = LockService.getScriptLock(); lock.waitLock(10000);
+  try { SpreadsheetApp.openById(SHEET_ID).getSheetByName('Bookings').appendRow(row); } finally { lock.releaseLock(); }
+  try { MailApp.sendEmail(Session.getEffectiveUser().getEmail(), 'New ' + (p.source||'booking') + ': ' + p.name,
+        COLS.map(k=>k+': '+(k==='addons'?addons:(p[k]||''))).join('\n')); } catch (err) {}
+  return out({ok:true});
+}
+function doGet() { return out({ok:true, service:'Mae Lynn Photos bookings'}); }
+function out(o){ return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
