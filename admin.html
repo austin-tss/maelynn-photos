@@ -14,17 +14,29 @@ th{font-size:11px;letter-spacing:.14em;text-transform:uppercase;font-weight:600;
 .kp .card{background:#fff;padding:34px 28px;max-width:360px;width:92%;text-align:center;border-radius:24px;box-shadow:0 10px 30px rgba(239,90,147,.15)}
 .pd{display:flex;gap:12px;justify-content:center;margin:18px 0}.pd i{width:16px;height:16px;border-radius:50%;border:2px solid var(--pink);display:block}.pd i.f{background:var(--pink)}
 .pad{display:grid;grid-template-columns:repeat(3,72px);gap:12px;justify-content:center}.pad button{height:72px;border-radius:50%;border:1.5px solid var(--line);background:#fff;font-size:24px;font-family:Gupter,serif;color:var(--ink);cursor:pointer}
-.pad button:active{background:var(--pink-soft)}</style></head><body>
+.pad button:active{background:var(--pink-soft)}</style><style>.tabs2{display:flex;gap:6px;flex-wrap:wrap;padding:12px 4vw 0}.tabs2 button.on{background:var(--pink);color:#fff}
+.panel{display:none}.panel.on{display:block}.cardx{background:#fff;border-radius:16px;padding:18px 20px;margin:12px 0}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.row>*{flex:1;min-width:140px}.mini{padding:7px 12px;font-size:10px}
+.ed input,.ed select,.ed textarea{margin-bottom:8px}.thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px}.thumbs img{aspect-ratio:1;object-fit:cover;border-radius:10px;cursor:pointer;width:100%}
+.qline{display:grid;grid-template-columns:2fr 1fr 1.6fr auto auto;gap:8px;align-items:center;margin-bottom:8px}.qline input,.qline select{margin:0}
+.tag{font-size:11px;padding:2px 8px;border-radius:12px;background:var(--pink-soft)}
+@media(max-width:700px){.qline{grid-template-columns:1fr 1fr}}</style></head><body>
 <div class="kp" id="kp"><div class="card"><img src="static/img/logo.jpg" style="width:96px;height:96px;border-radius:50%;margin:0 auto 10px" alt=""><h2 style="margin:0">Bookings Admin</h2><p style="margin:4px 0 0">Enter your 6-digit PIN</p>
 <p id="msg" style="color:#c0396b;min-height:1.4em;margin:8px 0 0"></p><div class="pd" id="pd"></div><div class="pad" id="pad"></div></div></div>
-<div class="top"><img src="static/img/logo.jpg" alt=""><h3 style="margin:0">Bookings</h3><span class="sp"></span>
-<span class="tabs"><button class="btn dark" id="tList" onclick="tab('list')">List</button><button class="btn" id="tCal" onclick="tab('cal')">Calendar</button></span>
-<button class="btn" onclick="openEdit({})">+ Add booking</button><button class="btn" onclick="csv()">Export CSV</button><a class="btn" href="https://docs.google.com/spreadsheets/d/1Pz3o0D_RF8LwV-VDrtF_ezInFPTL0SR6QCleNEfaq3s/edit" target="_blank">Open Sheet</a><a class="btn" href="index.html" target="_blank">View site</a><button class="btn" onclick="logout()">Log out</button></div>
-<div class="main"><div class="stats" id="stats"></div>
-<div id="list"><div class="bar"><input id="q" placeholder="Search name, email, phone, location, notes..." oninput="render()"><select id="fs" onchange="render()"><option value="">All statuses</option><option>new</option><option>confirmed</option><option>completed</option><option>cancelled</option></select>
-<select id="fp" onchange="render()"><option value="">All types</option></select><select id="fw" onchange="render()"><option value="">Any date</option><option value="up">Upcoming</option><option value="past">Past</option></select></div>
-<div style="overflow:auto"><table><thead><tr><th>Session date</th><th>Name</th><th>Package</th><th class="hide-m">Contact</th><th class="hide-m">Location</th><th>Status</th><th class="hide-m">Received</th></tr></thead><tbody id="rows"></tbody></table></div></div>
-<div id="calv" style="display:none"><div class="bar" style="align-items:center"><button class="btn" onclick="mv(-1)">&larr;</button><h3 id="mon" style="margin:0 12px"></h3><button class="btn" onclick="mv(1)">&rarr;</button></div><div class="cal" id="cal"></div>
-<h3 style="margin-top:26px">Upcoming sessions</h3><div id="upc"></div></div></div>
+<div class="top"><img src="static/img/logo.jpg" alt=""><h3 style="margin:0">Mae Lynn Admin</h3><span class="sp"></span>
+<a class="btn" href="index.html" target="_blank">View site</a><a class="btn" href="https://docs.google.com/spreadsheets/d/1Pz3o0D_RF8LwV-VDrtF_ezInFPTL0SR6QCleNEfaq3s/edit" target="_blank">Sheet</a><button class="btn" onclick="logout()">Log out</button></div>
+<div class="tabs2" id="tabs"></div>
+<div class="main">
+<div class="panel" id="p-bookings"><div class="stats" id="stats"></div>
+ <div class="bar"><input id="q" placeholder="Search name, email, phone, location, notes..." oninput="render()"><select id="fs" onchange="render()"><option value="">All statuses</option><option>new</option><option>confirmed</option><option>completed</option><option>cancelled</option></select>
+ <select id="fp" onchange="render()"><option value="">All types</option></select><select id="fw" onchange="render()"><option value="">Any date</option><option value="up">Upcoming</option><option value="past">Past</option></select>
+ <button class="btn" onclick="openEdit({})">+ Add booking</button><button class="btn" onclick="csv()">Export CSV</button></div>
+ <div style="overflow:auto"><table><thead><tr><th>Session date</th><th>Name</th><th>Package</th><th class="hide-m">Contact</th><th class="hide-m">Location</th><th>Status</th><th class="hide-m">Received</th></tr></thead><tbody id="rows"></tbody></table></div></div>
+<div class="panel" id="p-calendar"><div class="bar" style="align-items:center"><button class="btn" onclick="mv(-1)">&larr;</button><h3 id="mon" style="margin:0 12px"></h3><button class="btn" onclick="mv(1)">&rarr;</button></div><div class="cal" id="cal"></div>
+ <h3 style="margin-top:26px">Upcoming sessions</h3><div id="upc"></div></div>
+<div class="panel" id="p-bookpage"></div>
+<div class="panel" id="p-quest"></div>
+<div class="panel" id="p-texts"></div>
+</div>
 <div id="dlg" onclick="if(event.target.id=='dlg')closeD()"><div class="box" id="box"></div></div>
-<script src="config.js"></script><script src="admin.js"></script></body></html>
+<script src="config.js"></script><script src="siteconfig.js"></script><script src="admin.js"></script></body></html>

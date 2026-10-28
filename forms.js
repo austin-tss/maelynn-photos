@@ -2,7 +2,7 @@
   const sel=new URLSearchParams(location.search).get('package');
   const ps=document.querySelector('select[name=package]');
   if(ps&&sel){[...ps.options].forEach(o=>{if(o.dataset.slug===sel)o.selected=true})}
-  document.querySelectorAll('form.f').forEach(f=>{
+  document.querySelectorAll("form.f[data-source]").forEach(f=>{
     f.addEventListener('submit',async ev=>{
       ev.preventDefault();
       const btn=f.querySelector('button'),fd=new FormData(f);

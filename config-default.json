@@ -1,0 +1,193 @@
+{
+ "eyebrow": "Book a session today",
+ "heading": "Book a Session",
+ "intro": "Fill this out and I’ll reach out to confirm your date and plan your session.",
+ "packages_heading": "Packages",
+ "addons_heading": "Add to your Package:",
+ "addon_note": "location outside Tallahassee - negotiable (Message me)",
+ "submit_label": "Request my session",
+ "success_title": "Thank you!",
+ "success_text": "Your session request was sent. Macy will reach out to confirm your date. If you do not hear back in 24 hours, message me on Instagram or call/text 850-661-8123.",
+ "packages": [
+  {
+   "id": "forever-frame",
+   "category": "Couples and Families",
+   "name": "The Forever Frame Package",
+   "price": "$350.00",
+   "description": "It includes:",
+   "items": [
+    "Planning consultation (by text message or phone call)",
+    "1-2 hour session.",
+    "unlimited edited digital images in high resolution",
+    "After the session, you’ll get a digital gallery sent to your email, from there all the photos are yours.",
+    "One Location",
+    "One outfit"
+   ],
+   "image": "static/img/couples.jpg"
+  },
+  {
+   "id": "next-chapter",
+   "category": "Seniors + College Graduates",
+   "name": "The Next Chapter Package",
+   "price": "$350.00",
+   "description": "It includes:",
+   "items": [
+    "Planning consultation (by text message or phone call )",
+    "1-2 hour session",
+    "unlimited edited digital images in high resolution.",
+    "After the session, you’ll get a digital gallery sent to your email, from there all the photos are yours.",
+    "One Location",
+    "up to 2 outfits"
+   ],
+   "image": "static/img/graduates.jpg"
+  },
+  {
+   "id": "brand-builder",
+   "category": "Headshots/ branding photos",
+   "name": "The Brand Builder Package",
+   "price": "$200.00",
+   "description": "It includes:",
+   "items": [
+    "Planning consultation (by text message or phone call)",
+    "Up to 30  minute session.",
+    "digital images in high resolution",
+    "After the session, you’ll get a digital gallery sent to your email, from there all the photos are yours.",
+    "One Location",
+    "up to 2 outfits"
+   ],
+   "image": "static/img/family.jpg"
+  }
+ ],
+ "addons": [
+  {
+   "id": "extra_location",
+   "name": "Extra Location",
+   "price": "$100.00"
+  },
+  {
+   "id": "edited_24h",
+   "name": "Photos edited in 24 hours",
+   "price": "$150.00"
+  },
+  {
+   "id": "extra_outfit",
+   "name": "An Extra Outfit",
+   "price": "$ 75.00"
+  }
+ ],
+ "fields": [
+  {
+   "id": "name",
+   "label": "Full name",
+   "type": "text",
+   "required": true,
+   "options": [],
+   "placeholder": ""
+  },
+  {
+   "id": "email",
+   "label": "Email",
+   "type": "email",
+   "required": true,
+   "options": [],
+   "placeholder": ""
+  },
+  {
+   "id": "phone",
+   "label": "Phone",
+   "type": "tel",
+   "required": true,
+   "options": [],
+   "placeholder": ""
+  },
+  {
+   "id": "people",
+   "label": "Number of people",
+   "type": "number",
+   "required": true,
+   "options": [],
+   "placeholder": ""
+  },
+  {
+   "id": "date",
+   "label": "Preferred date",
+   "type": "date",
+   "required": true,
+   "options": [],
+   "placeholder": ""
+  },
+  {
+   "id": "time",
+   "label": "Preferred time",
+   "type": "time",
+   "required": false,
+   "options": [],
+   "placeholder": ""
+  },
+  {
+   "id": "alt_date",
+   "label": "Backup date",
+   "type": "date",
+   "required": false,
+   "options": [],
+   "placeholder": ""
+  },
+  {
+   "id": "outfits",
+   "label": "Number of outfits",
+   "type": "select",
+   "required": false,
+   "options": [
+    "1",
+    "2",
+    "3+"
+   ],
+   "placeholder": ""
+  },
+  {
+   "id": "location",
+   "label": "Location (where would you like your photos?)",
+   "type": "text",
+   "required": true,
+   "options": [],
+   "placeholder": "Park, campus, home, or ask for suggestions"
+  },
+  {
+   "id": "outside_tlh",
+   "label": "My location is outside Tallahassee",
+   "type": "checkbox",
+   "required": false,
+   "options": [],
+   "placeholder": ""
+  },
+  {
+   "id": "occasion",
+   "label": "Occasion (graduation, engagement, family, etc.)",
+   "type": "text",
+   "required": false,
+   "options": [],
+   "placeholder": ""
+  },
+  {
+   "id": "found",
+   "label": "How did you find out about me?",
+   "type": "select",
+   "required": false,
+   "options": [
+    "Instagram",
+    "Facebook",
+    "Through a friend",
+    "Another way"
+   ],
+   "placeholder": ""
+  },
+  {
+   "id": "notes",
+   "label": "Notes / vision / inspo links",
+   "type": "textarea",
+   "required": false,
+   "options": [],
+   "placeholder": ""
+  }
+ ]
+}

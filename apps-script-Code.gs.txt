@@ -1,91 +1,222 @@
-// Mae Lynn Photos - bookings backend (Google Apps Script web app bound to the "Mae Lynn Photos Bookings" sheet).
-// Setup: Extensions > Apps Script in the sheet, paste this file, run setAdminPin() once (see local-only setup file),
-// then Deploy > New deployment > Web app, Execute as: Me, Who has access: Anyone. Put the /exec URL in config.js.
+/* Mae Lynn Photos - backend (Google Apps Script web app). Owner: austin6stinson@gmail.com
+ * Deploy: Execute as Me, Who has access: Anyone. Frontend: https://austin-tss.github.io/maelynn-photos/
+ * Script Properties: ADMIN_PIN (set via setupPinFromProperty), TWILIO_SID, TWILIO_TOKEN, TWILIO_FROM, optional SITE_URL, NOTIFY_EMAIL.
+ * Storage: Google Sheet SHEET_ID (tabs Bookings, Questionnaires, Sends, Responses) + Drive folder for config.json and photos.
+ * Every admin call re-checks the session token server-side; every write is wrapped in LockService. */
 const SHEET_ID = '1Pz3o0D_RF8LwV-VDrtF_ezInFPTL0SR6QCleNEfaq3s';
-const TAB = 'Bookings';
-const COLS = ['received','status','source','package','name','email','phone','people','date','time','alt_date','outfits','location','addons','outside_tlh','occasion','found','notes','admin_notes'];
+const DEFAULT_SITE = 'https://austin-tss.github.io/maelynn-photos/';
+const COLS = ['received','status','source','package','name','email','phone','people','date','time','alt_date','outfits','location','addons','outside_tlh','occasion','found','notes','admin_notes','id','answers'];
+const HEAD = ['Received','Status','Source','Package','Name','Email','Phone','People','Preferred date','Preferred time','Backup date','Outfits','Location','Add-ons','Outside Tallahassee','Occasion','Found me via','Customer notes','Internal notes','ID','All answers (JSON)'];
+const TABS = {
+  Questionnaires: ['id','title','intro','questions_json','updated'],
+  Sends: ['token','qid','q_title','booking_id','name','phone','status','sent_at','opened_at','completed_at','twilio_sid','twilio_status','error'],
+  Responses: ['token','qid','q_title','booking_id','name','submitted_at','answers_json']
+};
 const STATUSES = ['new','confirmed','completed','cancelled'];
 const MAX_FAILS = 5, LOCK_MIN = 15, SESSION_SEC = 6 * 3600;
 
-// One-time: call with the PIN from the editor (never commit the PIN).
-function setAdminPin(pin) {
-  if (!/^\d{6}$/.test(String(pin || ''))) throw new Error('PIN must be 6 digits');
-  PropertiesService.getScriptProperties().setProperty('ADMIN_PIN', String(pin));
+/* ---------- one-time setup (run from the editor) ---------- */
+function setup() {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  let b = ss.getSheetByName('Bookings') || ss.insertSheet('Bookings');
+  b.getRange(1, 1, 1, HEAD.length).setValues([HEAD]).setFontWeight('bold'); b.setFrozenRows(1);
+  Object.keys(TABS).forEach(n => { const s = ss.getSheetByName(n) || ss.insertSheet(n);
+    s.getRange(1, 1, 1, TABS[n].length).setValues([TABS[n]]).setFontWeight('bold'); s.setFrozenRows(1); });
+  folder_(); photosFolder_();
+  return 'ok';
 }
+// Set Script Property NEW_ADMIN_PIN (6 digits) by hand, run this, and it moves into ADMIN_PIN and is deleted.
+function setupPinFromProperty() {
+  const p = PropertiesService.getScriptProperties(), pin = String(p.getProperty('NEW_ADMIN_PIN') || '').trim();
+  if (!/^\d{6}$/.test(pin)) throw new Error('Set Script Property NEW_ADMIN_PIN to a 6-digit PIN first.');
+  p.setProperty('ADMIN_PIN', pin); p.deleteProperty('NEW_ADMIN_PIN'); p.setProperty('FAILS', '0'); p.deleteProperty('LOCKED_UNTIL');
+  return 'ADMIN_PIN set';
+}
+// Run once to trigger the UrlFetch (Twilio) + Drive + Mail permission prompts.
+function authorizeAll() { DriveApp.getRootFolder(); UrlFetchApp.fetch('https://www.google.com'); MailApp.getRemainingDailyQuota(); return 'ok'; }
 
-function sheet() { return SpreadsheetApp.openById(SHEET_ID).getSheetByName(TAB); }
+/* ---------- helpers ---------- */
 function out(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
-function doGet() { return out({ ok: true, service: 'Mae Lynn Photos bookings' }); }
+function prop_(k) { return PropertiesService.getScriptProperties().getProperty(k) || ''; }
+function now_() { return Utilities.formatDate(new Date(), 'America/New_York', 'yyyy-MM-dd HH:mm'); }
+function ss_() { return SpreadsheetApp.openById(SHEET_ID); }
+function tab_(n) { const s = ss_().getSheetByName(n); if (!s) { setup(); return ss_().getSheetByName(n); } return s; }
+function withLock_(fn) { const l = LockService.getScriptLock(); l.waitLock(20000); try { return fn(); } finally { l.releaseLock(); } }
+function site_() { let s = prop_('SITE_URL') || DEFAULT_SITE; return s.endsWith('/') ? s : s + '/'; }
+function readTab_(n) {
+  const s = tab_(n), last = s.getLastRow(), cols = n === 'Bookings' ? COLS : TABS[n];
+  if (last < 2) return [];
+  return s.getRange(2, 1, last - 1, cols.length).getDisplayValues().map((v, i) => { const o = { _row: i + 2 }; cols.forEach((k, j) => o[k] = v[j]); return o; });
+}
+function findBy_(n, key, val) { return readTab_(n).find(o => o[key] === val); }
+function writeRow_(n, row, obj) { const cols = n === 'Bookings' ? COLS : TABS[n]; tab_(n).getRange(row, 1, 1, cols.length).setValues([cols.map(k => obj[k] == null ? '' : String(obj[k]))]); }
+function append_(n, obj) { const cols = n === 'Bookings' ? COLS : TABS[n]; tab_(n).appendRow(cols.map(k => obj[k] == null ? '' : String(obj[k]))); }
+function uid_() { return Utilities.getUuid().replace(/-/g, '').slice(0, 12); }
 
-function doPost(e) {
-  let body = {};
-  try { if (e.postData && /json|text\/plain/.test(e.postData.type)) body = JSON.parse(e.postData.contents || '{}'); } catch (err) {}
-  if (body.action) return out(admin(body));
-  return out(submit(e));
+/* ---------- Drive: site config + photos ---------- */
+function folder_() {
+  const p = PropertiesService.getScriptProperties(); let id = p.getProperty('SITE_FOLDER');
+  if (id) { try { return DriveApp.getFolderById(id); } catch (e) {} }
+  const f = DriveApp.createFolder('Mae Lynn Photos Site'); p.setProperty('SITE_FOLDER', f.getId()); return f;
+}
+function photosFolder_() {
+  const p = PropertiesService.getScriptProperties(); let id = p.getProperty('PHOTOS_FOLDER');
+  if (id) { try { return DriveApp.getFolderById(id); } catch (e) {} }
+  const f = folder_().createFolder('Photos'); p.setProperty('PHOTOS_FOLDER', f.getId()); return f;
+}
+function getConfig_() {
+  const c = CacheService.getScriptCache(), hit = c.get('site_config'); if (hit) return JSON.parse(hit);
+  const id = prop_('CONFIG_FILE'); if (!id) return null;
+  try { const txt = DriveApp.getFileById(id).getBlob().getDataAsString(); if (txt.length < 95000) c.put('site_config', txt, 300); return JSON.parse(txt); } catch (e) { return null; }
+}
+function saveConfig_(cfg) {
+  cfg.updated = now_(); const txt = JSON.stringify(cfg); const p = PropertiesService.getScriptProperties(); let id = p.getProperty('CONFIG_FILE');
+  if (id) { try { DriveApp.getFileById(id).setContent(txt); } catch (e) { id = ''; } }
+  if (!id) { const f = folder_().createFile('site-config.json', txt, 'application/json'); p.setProperty('CONFIG_FILE', f.getId()); }
+  CacheService.getScriptCache().remove('site_config'); return cfg;
+}
+function uploadPhoto_(b) {
+  const m = String(b.data || '').match(/^data:(image\/[a-z+]+);base64,(.+)$/); if (!m) return { ok: false, error: 'bad image' };
+  const blob = Utilities.newBlob(Utilities.base64Decode(m[2]), m[1], String(b.name || 'photo.jpg').replace(/[^\w.\- ]/g, '').slice(0, 80) || 'photo.jpg');
+  const f = photosFolder_().createFile(blob);
+  f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  return { ok: true, id: f.getId(), url: 'https://drive.google.com/thumbnail?id=' + f.getId() + '&sz=w2000' };
+}
+function listPhotos_() {
+  const it = photosFolder_().getFiles(), outA = [];
+  while (it.hasNext() && outA.length < 300) { const f = it.next(); outA.push({ id: f.getId(), name: f.getName(), url: 'https://drive.google.com/thumbnail?id=' + f.getId() + '&sz=w2000', created: f.getDateCreated().getTime() }); }
+  return outA.sort((a, b) => b.created - a.created);
 }
 
-function submit(e) {
-  const p = e.parameter || {};
+/* ---------- Twilio ---------- */
+function sms_(to, body) {
+  const sid = prop_('TWILIO_SID'), tok = prop_('TWILIO_TOKEN'), from = prop_('TWILIO_FROM');
+  if (!sid || !tok || !from) return { ok: false, error: 'Texting is not set up yet (TWILIO_SID / TWILIO_TOKEN / TWILIO_FROM missing).' };
+  const r = UrlFetchApp.fetch('https://api.twilio.com/2010-04-01/Accounts/' + sid + '/Messages.json', { method: 'post', muteHttpExceptions: true,
+    headers: { Authorization: 'Basic ' + Utilities.base64Encode(sid + ':' + tok) }, payload: { To: to, From: from, Body: body } });
+  let j = {}; try { j = JSON.parse(r.getContentText()); } catch (e) {}
+  return r.getResponseCode() < 300 ? { ok: true, sid: j.sid, status: j.status } : { ok: false, error: (j.message || ('HTTP ' + r.getResponseCode())) };
+}
+function twilioStatus_(msid) {
+  const sid = prop_('TWILIO_SID'), tok = prop_('TWILIO_TOKEN'); if (!sid || !tok || !msid) return '';
+  const r = UrlFetchApp.fetch('https://api.twilio.com/2010-04-01/Accounts/' + sid + '/Messages/' + msid + '.json', { muteHttpExceptions: true, headers: { Authorization: 'Basic ' + Utilities.base64Encode(sid + ':' + tok) } });
+  try { return JSON.parse(r.getContentText()).status || ''; } catch (e) { return ''; }
+}
+function e164_(p) { let d = String(p || '').replace(/[^\d+]/g, ''); if (d.startsWith('+')) return d; d = d.replace(/\D/g, ''); if (d.length === 10) return '+1' + d; if (d.length === 11 && d[0] === '1') return '+' + d; return ''; }
+
+/* ---------- routing ---------- */
+function doGet(e) {
+  const p = (e && e.parameter) || {};
+  if (p.a === 'config') return out({ ok: true, config: getConfig_() });
+  if (p.a === 'q') return out(qPublic_(p.t));
+  return out({ ok: true, service: 'Mae Lynn Photos' });
+}
+function doPost(e) {
+  let b = null;
+  try { if (e.postData && /json|text\/plain/.test(e.postData.type)) b = JSON.parse(e.postData.contents || '{}'); } catch (err) {}
+  if (b && b.action === 'qsubmit') return out(qSubmit_(b));
+  if (b && b.action === 'q') return out(qPublic_(b.t));
+  if (b && b.action) return out(admin_(b));
+  return out(submit_(e));
+}
+
+/* ---------- public booking/contact submit ---------- */
+function submit_(e) {
+  const p = e.parameter || {}, multi = e.parameters || {};
   if (p.website) return { ok: true };
-  if (!p.name || !(p.email || p.phone)) return { ok: false, error: 'missing fields' };
-  const addons = (e.parameters && e.parameters.addons) ? e.parameters.addons.join(', ') : (p.addons || '');
-  const row = COLS.map(k => k === 'received' ? Utilities.formatDate(new Date(), 'America/New_York', 'yyyy-MM-dd HH:mm')
-    : k === 'status' ? 'new' : k === 'addons' ? addons : k === 'admin_notes' ? '' : String(p[k] || '').slice(0, 3000));
-  const lock = LockService.getScriptLock(); lock.waitLock(10000);
-  try { sheet().appendRow(row); } finally { lock.releaseLock(); }
-  try { MailApp.sendEmail(Session.getEffectiveUser().getEmail(), 'New ' + (p.source || 'booking') + ': ' + p.name,
-    COLS.map((k, i) => k + ': ' + row[i]).join('\n')); } catch (err) {}
+  if (!p.name || !(p.email || p.phone)) return { ok: false, error: 'Please include your name and email or phone.' };
+  const answers = {}; let labels = {}; try { labels = JSON.parse(p._labels || '{}'); } catch (x) {}
+  Object.keys(multi).forEach(k => { if (k[0] === '_' || k === 'website') return; answers[labels[k] || k] = multi[k].join(', '); });
+  const o = { id: uid_(), received: now_(), status: 'new', admin_notes: '', answers: JSON.stringify(answers) };
+  COLS.forEach(k => { if (o[k] == null) o[k] = multi[k] ? multi[k].join(', ').slice(0, 3000) : ''; });
+  o.source = p.source || 'booking form';
+  withLock_(() => append_('Bookings', o));
+  try { MailApp.sendEmail(prop_('NOTIFY_EMAIL') || Session.getEffectiveUser().getEmail(), 'New ' + o.source + ': ' + o.name,
+    Object.keys(answers).map(k => k + ': ' + answers[k]).join('\n') + '\n\nAdmin: ' + site_() + 'admin.html'); } catch (err) {}
   return { ok: true };
 }
 
-// ---- Admin API: {action, pin|token, ...} ----
-function admin(b) {
+/* ---------- public questionnaire ---------- */
+function qPublic_(t) {
+  if (!t) return { ok: false, error: 'missing link' };
+  const s = findBy_('Sends', 'token', String(t)); if (!s) return { ok: false, error: 'This link is not valid.' };
+  const q = findBy_('Questionnaires', 'id', s.qid); if (!q) return { ok: false, error: 'This questionnaire is no longer available.' };
+  if (!s.opened_at) withLock_(() => { s.opened_at = now_(); if (s.status === 'sent') s.status = 'opened'; writeRow_('Sends', s._row, s); });
+  return { ok: true, done: !!s.completed_at, name: s.name, title: q.title, intro: q.intro, questions: JSON.parse(q.questions_json || '[]') };
+}
+function qSubmit_(b) {
+  const s = findBy_('Sends', 'token', String(b.t || '')); if (!s) return { ok: false, error: 'This link is not valid.' };
+  if (s.completed_at) return { ok: false, error: 'This questionnaire was already submitted. Thank you!' };
+  const a = b.answers || {}; const clean = {}; Object.keys(a).slice(0, 100).forEach(k => clean[String(k).slice(0, 200)] = String(a[k]).slice(0, 5000));
+  withLock_(() => {
+    append_('Responses', { token: s.token, qid: s.qid, q_title: s.q_title, booking_id: s.booking_id, name: s.name, submitted_at: now_(), answers_json: JSON.stringify(clean) });
+    s.completed_at = now_(); s.status = 'completed'; writeRow_('Sends', s._row, s);
+  });
+  try { MailApp.sendEmail(prop_('NOTIFY_EMAIL') || Session.getEffectiveUser().getEmail(), 'Questionnaire completed: ' + s.name + ' (' + s.q_title + ')',
+    Object.keys(clean).map(k => k + ': ' + clean[k]).join('\n')); } catch (err) {}
+  return { ok: true };
+}
+
+/* ---------- admin API (server-side PIN/session check on every call) ---------- */
+function admin_(b) {
   const props = PropertiesService.getScriptProperties(), cache = CacheService.getScriptCache();
   if (b.action === 'login') {
-    const lockedUntil = Number(props.getProperty('LOCKED_UNTIL') || 0);
-    if (Date.now() < lockedUntil) return { ok: false, error: 'locked', minutes: Math.ceil((lockedUntil - Date.now()) / 60000) };
-    const pin = props.getProperty('ADMIN_PIN');
-    if (!pin) return { ok: false, error: 'PIN not set up' };
-    Utilities.sleep(800);
-    if (String(b.pin || '') !== pin) {
-      const fails = Number(props.getProperty('FAILS') || 0) + 1;
-      if (fails >= MAX_FAILS) { props.setProperty('LOCKED_UNTIL', String(Date.now() + LOCK_MIN * 60000)); props.setProperty('FAILS', '0');
-        return { ok: false, error: 'locked', minutes: LOCK_MIN }; }
-      props.setProperty('FAILS', String(fails));
-      return { ok: false, error: 'wrong', left: MAX_FAILS - fails };
-    }
-    props.setProperty('FAILS', '0');
-    const token = Utilities.getUuid() + Utilities.getUuid();
-    cache.put('s:' + token, '1', SESSION_SEC);
-    return { ok: true, token: token };
+    return withLock_(() => {
+      const until = Number(props.getProperty('LOCKED_UNTIL') || 0);
+      if (Date.now() < until) return { ok: false, error: 'locked', minutes: Math.ceil((until - Date.now()) / 60000) };
+      const pin = props.getProperty('ADMIN_PIN'); if (!pin) return { ok: false, error: 'PIN not set up yet (run setupPinFromProperty).' };
+      Utilities.sleep(700);
+      if (String(b.pin || '') !== pin) {
+        const fails = Number(props.getProperty('FAILS') || 0) + 1;
+        if (fails >= MAX_FAILS) { props.setProperty('LOCKED_UNTIL', String(Date.now() + LOCK_MIN * 60000)); props.setProperty('FAILS', '0'); return { ok: false, error: 'locked', minutes: LOCK_MIN }; }
+        props.setProperty('FAILS', String(fails)); return { ok: false, error: 'wrong', left: MAX_FAILS - fails };
+      }
+      props.setProperty('FAILS', '0'); const token = Utilities.getUuid() + Utilities.getUuid(); cache.put('s:' + token, '1', SESSION_SEC);
+      return { ok: true, token: token };
+    });
   }
-  if (!b.token || !cache.get('s:' + b.token)) return { ok: false, error: 'auth' };
+  if (!b.token || !cache.get('s:' + b.token) || !props.getProperty('ADMIN_PIN')) return { ok: false, error: 'auth' };
   cache.put('s:' + b.token, '1', SESSION_SEC);
-  const sh = sheet();
-  const lock = LockService.getScriptLock(); lock.waitLock(10000);
-  try {
-    if (b.action === 'list') return { ok: true, rows: rows(sh) };
-    if (b.action === 'create') {
-      const d = b.data || {}; if (STATUSES.indexOf(d.status) < 0) d.status = 'new';
-      d.received = Utilities.formatDate(new Date(), 'America/New_York', 'yyyy-MM-dd HH:mm'); d.source = d.source || 'admin';
-      sh.appendRow(COLS.map(k => String(d[k] || ''))); return { ok: true };
-    }
-    const r = findRow(sh, b.id);
-    if (!r) return { ok: false, error: 'not found (refresh and try again)' };
-    if (b.action === 'update') {
-      const d = b.data || {}; if (d.status && STATUSES.indexOf(d.status) < 0) delete d.status;
-      const cur = sh.getRange(r, 1, 1, COLS.length).getValues()[0];
-      COLS.forEach((k, i) => { if (k !== 'received' && d[k] !== undefined) cur[i] = String(d[k]).slice(0, 5000); });
-      sh.getRange(r, 1, 1, COLS.length).setValues([cur]); return { ok: true };
-    }
-    if (b.action === 'delete') { sh.deleteRow(r); return { ok: true }; }
-    return { ok: false, error: 'unknown action' };
-  } finally { lock.releaseLock(); }
+  const A = ADMIN_ACTIONS[b.action]; if (!A) return { ok: false, error: 'unknown action' };
+  try { return A(b); } catch (err) { return { ok: false, error: String(err && err.message || err) }; }
 }
-function rows(sh) {
-  const n = sh.getLastRow(); if (n < 2) return [];
-  return sh.getRange(2, 1, n - 1, COLS.length).getDisplayValues().map((v, i) => {
-    const o = { row: i + 2 }; COLS.forEach((k, j) => o[k] = v[j]); o.id = o.received + '|' + o.name + '|' + o.email; return o; });
+const ADMIN_ACTIONS = {
+  logout: b => { CacheService.getScriptCache().remove('s:' + b.token); return { ok: true }; },
+  list: () => withLock_(() => {
+    const rows = readTab_('Bookings'); rows.forEach(o => { if (!o.id) { o.id = uid_(); writeRow_('Bookings', o._row, o); } });
+    return { ok: true, rows: rows, sends: readTab_('Sends'), responses: readTab_('Responses'), twilio: !!(prop_('TWILIO_SID') && prop_('TWILIO_TOKEN') && prop_('TWILIO_FROM')) };
+  }),
+  create: b => withLock_(() => { const d = b.data || {}, o = {}; COLS.forEach(k => o[k] = d[k] || ''); o.id = uid_(); o.received = now_(); o.source = d.source || 'admin';
+    if (STATUSES.indexOf(o.status) < 0) o.status = 'new'; append_('Bookings', o); return { ok: true, id: o.id }; }),
+  update: b => withLock_(() => { const o = findBy_('Bookings', 'id', String(b.id)); if (!o) return { ok: false, error: 'Booking not found (refresh).' };
+    const d = b.data || {}; if (d.status && STATUSES.indexOf(d.status) < 0) delete d.status;
+    COLS.forEach(k => { if (['id', 'received', 'answers'].indexOf(k) < 0 && d[k] !== undefined) o[k] = String(d[k]).slice(0, 5000); });
+    writeRow_('Bookings', o._row, o); return { ok: true }; }),
+  delete: b => withLock_(() => { const o = findBy_('Bookings', 'id', String(b.id)); if (!o) return { ok: false, error: 'Booking not found (refresh).' };
+    tab_('Bookings').deleteRow(o._row); return { ok: true }; }),
+  getConfig: () => ({ ok: true, config: getConfig_() }),
+  saveConfig: b => withLock_(() => ({ ok: true, config: saveConfig_(b.config || {}) })),
+  uploadPhoto: b => withLock_(() => uploadPhoto_(b)),
+  listPhotos: () => ({ ok: true, photos: listPhotos_() }),
+  deletePhoto: b => withLock_(() => { const f = DriveApp.getFileById(String(b.id)); if (f.getParents().next().getId() !== photosFolder_().getId()) return { ok: false, error: 'not a site photo' }; f.setTrashed(true); return { ok: true }; }),
+  listQ: () => ({ ok: true, questionnaires: readTab_('Questionnaires').map(q => ({ id: q.id, title: q.title, intro: q.intro, questions: JSON.parse(q.questions_json || '[]'), updated: q.updated })) }),
+  saveQ: b => withLock_(() => { const q = b.q || {}; const o = q.id ? findBy_('Questionnaires', 'id', String(q.id)) : null;
+    const rec = { id: o ? o.id : uid_(), title: String(q.title || 'Questionnaire').slice(0, 200), intro: String(q.intro || '').slice(0, 3000), questions_json: JSON.stringify(q.questions || []), updated: now_() };
+    if (o) writeRow_('Questionnaires', o._row, rec); else append_('Questionnaires', rec); return { ok: true, id: rec.id }; }),
+  deleteQ: b => withLock_(() => { const o = findBy_('Questionnaires', 'id', String(b.id)); if (o) tab_('Questionnaires').deleteRow(o._row); return { ok: true }; }),
+  sendQ: b => sendQ_(b),
+  refreshSends: () => withLock_(() => { const s = readTab_('Sends'); s.forEach(x => { if (x.twilio_sid && ['delivered', 'undelivered', 'failed'].indexOf(x.twilio_status) < 0) { const st = twilioStatus_(x.twilio_sid); if (st && st !== x.twilio_status) { x.twilio_status = st; writeRow_('Sends', x._row, x); } } }); return { ok: true, sends: readTab_('Sends') }; })
+};
+function sendQ_(b) {
+  const q = findBy_('Questionnaires', 'id', String(b.qid || '')); if (!q) return { ok: false, error: 'Pick a questionnaire.' };
+  let name = String(b.name || ''), phone = String(b.phone || ''), bid = String(b.bookingId || '');
+  if (bid) { const bk = findBy_('Bookings', 'id', bid); if (!bk) return { ok: false, error: 'Booking not found.' }; name = name || bk.name; phone = phone || bk.phone; }
+  const to = e164_(phone); if (!to) return { ok: false, error: 'Enter a valid US phone number.' };
+  const token = Utilities.getUuid().replace(/-/g, '') + uid_();
+  const link = site_() + 'questionnaire.html?t=' + token;
+  const msg = String(b.message || ('Hi ' + (name.split(' ')[0] || 'there') + '! This is Macy with Mae Lynn Photography. Please fill out your "' + q.title + '" questionnaire before our session:')).slice(0, 600) + ' ' + link;
+  const r = sms_(to, msg);
+  const rec = { token: token, qid: q.id, q_title: q.title, booking_id: bid, name: name, phone: to, status: r.ok ? 'sent' : 'failed', sent_at: now_(), opened_at: '', completed_at: '', twilio_sid: r.sid || '', twilio_status: r.status || '', error: r.ok ? '' : r.error };
+  withLock_(() => append_('Sends', rec));
+  return r.ok ? { ok: true, link: link } : { ok: false, error: r.error, link: link };
 }
-// Rows are identified by received|name|email so a stale row number never edits the wrong booking.
-function findRow(sh, id) { const all = rows(sh); for (const o of all) if (o.id === id) return o.row; return 0; }

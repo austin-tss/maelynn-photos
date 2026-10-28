@@ -1,0 +1,8 @@
+// Loads the editable site config from the Apps Script backend, falling back to the cached copy in the repo.
+window.MLP_esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+window.MLP_loadConfig=async function(){
+  if(window.MLP_FORM_URL){try{const ctl=new AbortController();setTimeout(()=>ctl.abort(),6000);
+    const r=await fetch(window.MLP_FORM_URL+'?a=config',{signal:ctl.signal});const j=await r.json();if(j.ok&&j.config&&j.config.packages)return j.config}catch(e){}}
+  return (await fetch('config-default.json',{cache:'no-cache'})).json()};
+window.MLP_pkgHTML=function(c){const e=MLP_esc;return (c.packages||[]).map((p,i)=>`<div class="pkg" id="${e(p.id)}"><div class="pimg">${p.image?`<img src="${e(p.image)}" alt="${e(p.category||p.name)}">`:''}</div><div><h5>${e(p.category)}</h5><h1>${e(p.name)}</h1>${p.description?`<p>${e(p.description).replace(/\n/g,'<br>')}</p>`:''}<ul>${(p.items||[]).map(x=>`<li>${e(x)}</li>`).join('')}</ul><div class="price">${e(p.price)}</div><a class="btn dark" href="book.html?package=${encodeURIComponent(p.id)}">Book a session</a></div></div>`).join('')};
+window.MLP_addHTML=function(c){const e=MLP_esc;return `<h1>${e(c.addons_heading||'Add to your Package:')}</h1><div class="addrow" style="margin-top:30px">${(c.addons||[]).map(a=>`<div><h3>${e(a.name)}</h3><div class="price">${e(a.price)}</div></div>`).join('')}</div><p style="margin-top:22px">${e(c.addon_note||'')}</p><p style="margin-top:24px"><a class="btn dark" href="book.html">Let's DO it!</a></p>`};
