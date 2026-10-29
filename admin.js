@@ -64,7 +64,9 @@ function csv(){const cols=['received','status','source','package','name','email'
 const FTYPES=['text','email','tel','number','date','time','textarea','select','radio','checkboxes','checkbox'];
 let PHOTOS=[],PICK=null,DIRTY=false;
 async function bookPage(){const P=document.getElementById('p-bookpage');if(!CFG){P.innerHTML='<p>Loading…</p>';const j=await api({action:'getConfig'});
- CFG=(j.ok&&j.config&&j.config.packages)?j.config:await (await fetch('config-default.json',{cache:'no-cache'})).json();loadPhotos()}drawBP()}
+ CFG=(j.ok&&j.config&&j.config.packages)?j.config:await (await fetch('config-default.json',{cache:'no-cache'})).json();loadPhotos()}
+ CFG.buttons=Object.assign({nav_label:'Book a Session',cta_label:'Book a session',package_label:'Book a session',link:'book.html',show_in_nav:true},CFG.buttons||{});
+ CFG.other_option=Object.assign({enabled:true,label:'Other',field_label:"Tell us what you'd like",placeholder:"Tell Macy what you're looking for"},CFG.other_option||{});drawBP()}
 function setv(path,v){let o=CFG;const k=path.split('.');k.slice(0,-1).forEach(x=>o=o[x]);o[k[k.length-1]]=v;DIRTY=true;document.getElementById('dirty').textContent='Unsaved changes'}
 const inp=(path,v,ph='')=>`<input value="${esc(v)}" placeholder="${esc(ph)}" oninput="setv('${path}',this.value)">`;
 const ta=(path,v,rows=3)=>`<textarea rows="${rows}" oninput="setv('${path}',this.value)">${esc(v)}</textarea>`;
@@ -77,6 +79,14 @@ function drawBP(){const c=CFG,P=document.getElementById('p-bookpage');
  <div class="cardx ed"><h3>Page text</h3><div class="row"><div><label>Small heading</label>${inp('eyebrow',c.eyebrow)}</div><div><label>Main heading</label>${inp('heading',c.heading)}</div></div>
  <label>Intro text</label>${ta('intro',c.intro)}<div class="row"><div><label>Packages heading (Services page)</label>${inp('packages_heading',c.packages_heading)}</div><div><label>Add-ons heading</label>${inp('addons_heading',c.addons_heading)}</div></div>
  <label>Add-on note</label>${inp('addon_note',c.addon_note)}<div class="row"><div><label>Submit button</label>${inp('submit_label',c.submit_label)}</div><div><label>Thank-you heading</label>${inp('success_title',c.success_title)}</div></div><label>Thank-you message</label>${ta('success_text',c.success_text)}</div>
+
+ <div class="cardx ed"><h3>"Book a Session" buttons (whole site)</h3><p style="margin-top:0">These change every Book button on Home, About, Services, Portfolio, Contact and the menu.</p>
+ <div class="row"><div><label>Menu button text</label>${inp('buttons.nav_label',c.buttons.nav_label)}</div><div><label>Page button text (Home/About/Contact)</label>${inp('buttons.cta_label',c.buttons.cta_label)}</div><div><label>Package button text (Services/Portfolio)</label>${inp('buttons.package_label',c.buttons.package_label)}</div></div>
+ <div class="row"><div><label>Add-ons button text (Services)</label>${inp('addons_button_label',c.addons_button_label||"Let's DO it!")}</div><div style="flex:2"><label>Where buttons link</label>${inp('buttons.link',c.buttons.link,'book.html (or a full https:// link)')}</div></div>
+ <label style="display:flex;gap:6px;align-items:center;text-transform:none;letter-spacing:0"><input type="checkbox" style="width:auto;margin:0" ${c.buttons.show_in_nav!==false?'checked':''} onchange="setv('buttons.show_in_nav',this.checked)"> Show Book button in the top menu</label></div>
+ <div class="cardx ed"><h3>Session picker</h3><div class="row"><div><label>Session picker label</label>${inp('package_label',c.package_label||'Session type / package')}</div></div>
+ <label style="display:flex;gap:6px;align-items:center;text-transform:none;letter-spacing:0"><input type="checkbox" style="width:auto;margin:0" ${c.other_option.enabled!==false?'checked':''} onchange="setv('other_option.enabled',this.checked)"> Offer an "Other" choice (customer describes what they want)</label>
+ <div class="row"><div><label>Other choice text</label>${inp('other_option.label',c.other_option.label)}</div><div><label>Other box label</label>${inp('other_option.field_label',c.other_option.field_label)}</div><div style="flex:2"><label>Other box placeholder</label>${inp('other_option.placeholder',c.other_option.placeholder)}</div></div></div>
  <div class="cardx ed"><h3>Packages</h3>${(c.packages||[]).map((p,i)=>`<div class="cardx" style="background:var(--soft)"><div class="row"><b>${i+1}. ${esc(p.name)}</b>${ctr('packages',i)}</div>
   <div class="row"><div style="flex:0 0 120px">${p.image?`<img src="${esc(p.image)}" style="width:120px;aspect-ratio:4/5;object-fit:cover;border-radius:12px">`:'<div style="width:120px;aspect-ratio:4/5;background:#fff;border-radius:12px"></div>'}<button type="button" class="btn mini" style="margin-top:6px;width:120px" onclick="pickPhoto('packages.${i}.image')">Change photo</button></div>
   <div><div class="row"><div><label>Category</label>${inp(`packages.${i}.category`,p.category)}</div><div><label>Name</label>${inp(`packages.${i}.name`,p.name)}</div><div style="max-width:140px"><label>Price</label>${inp(`packages.${i}.price`,p.price,'$0.00')}</div></div>

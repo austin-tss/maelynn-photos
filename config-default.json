@@ -190,5 +190,20 @@
    "placeholder": ""
   }
  ],
- "venmo_user": "Macy-Bower"
+ "venmo_user": "Macy-Bower",
+ "buttons": {
+  "nav_label": "Book a Session",
+  "cta_label": "Book a session",
+  "package_label": "Book a session",
+  "link": "book.html",
+  "show_in_nav": true
+ },
+ "addons_button_label": "Let's DO it!",
+ "package_label": "Session type / package",
+ "other_option": {
+  "enabled": true,
+  "label": "Other",
+  "field_label": "Tell us what you'd like",
+  "placeholder": "Tell Macy what you're looking for"
+ }
 }

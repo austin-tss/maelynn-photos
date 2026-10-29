@@ -11,16 +11,21 @@
     return `<div class="${full}"><label>${lab}</label><input type="${t}" name="${id}" ${req} ${ph} ${t==='number'?'min="0"':''}></div>`};
   const pk=(c.packages||[]).map(p=>`<option value="${e(p.name)}" ${p.id===sel||p.name===sel?'selected':''}>${e(p.name)}${p.category?' — '+e(p.category):''}${p.price?' ('+e(p.price)+')':''}</option>`).join('');
   const ad=(c.addons||[]).map(a=>`<label><input type="checkbox" name="addons" value="${e(a.name)}${a.price?' ('+e(a.price)+')':''}"> ${e(a.name)}${a.price?' — '+e(a.price):''}</label>`).join('');
+  const oo=c.other_option||{};
   const chosen=(c.packages||[]).find(p=>p.id===sel);
   root.innerHTML=`<div class="center"><h5>${e(c.eyebrow||'')}</h5><h1>${e(c.heading||'Book a Session')}</h1><p>${e(c.intro||'').replace(/\n/g,'<br>')}</p></div>
   ${chosen&&chosen.image?`<img src="${e(chosen.image)}" alt="" style="max-width:320px;margin:24px auto;border-radius:22px;aspect-ratio:4/5;object-fit:cover">`:''}
-  <form class="f" id="bf" style="margin-top:36px"><div class="full"><label>Session type / package *</label><select name="package" required><option value="">Select a package</option>${pk}</select></div>
+  <form class="f" id="bf" style="margin-top:36px"><div class="full"><label>${e(c.package_label||'Session type / package')} *</label><select name="package" id="pkgsel" required><option value="">Select a package</option>${pk}${oo.enabled!==false?`<option value="${e(oo.label||'Other')}" ${sel==='other'?'selected':''}>${e(oo.label||'Other')}</option>`:''}</select></div>
+  <div class="full" id="otherwrap" style="display:none"><label>${e(oo.field_label||"Tell us what you'd like")} *</label><textarea name="other_request" id="otherreq" placeholder="${e(oo.placeholder||"Tell Macy what you're looking for")}"></textarea></div>
   ${(c.fields||[]).map(field).join('')}
   ${ad?`<div class="full checks"><label style="text-transform:uppercase;letter-spacing:.14em;font-weight:600;font-size:12px">${e(c.addons_heading||'Add to your package')}</label>${ad}${c.addon_note?`<p style="font-size:14px;margin:4px 0 0">${e(c.addon_note)}</p>`:''}</div>`:''}
   <input name="website" style="display:none" tabindex="-1" autocomplete="off"><div class="full"><button class="btn dark">${e(c.submit_label||'Request my session')}</button></div></form>`;
-  const f=document.getElementById('bf');
+  const f=document.getElementById('bf'),ps=document.getElementById('pkgsel'),ow=document.getElementById('otherwrap'),orq=document.getElementById('otherreq');
+  const isOther=()=>oo.enabled!==false&&ps.value===(oo.label||'Other')&&ps.selectedIndex===ps.options.length-1;
+  const tog=()=>{const on=isOther();ow.style.display=on?'':'none';orq.required=on};ps.addEventListener('change',tog);tog();
   f.addEventListener('submit',async ev=>{ev.preventDefault();const fd=new FormData(f),btn=f.querySelector('button');
     const labels={package:'Package',addons:'Add-ons'};(c.fields||[]).forEach(x=>labels[x.id]=x.label);
+    if(isOther()){const t=String(fd.get('other_request')||'').trim(),n=String(fd.get('notes')||'').trim();fd.set('notes',`${oo.label||'Other'} request: ${t}`+(n?'\n\n'+n:''));labels.other_request=oo.field_label||'Other request'}else fd.delete('other_request');
     fd.append('source','booking form');fd.append('_labels',JSON.stringify(labels));
     if(!window.MLP_FORM_URL){alert('Online booking is being set up. Please message @maelynnphotos on Instagram or call/text 850-661-8123.');return}
     btn.disabled=true;btn.textContent='Sending...';
