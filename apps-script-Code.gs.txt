@@ -10,8 +10,13 @@ const HEAD = ['Received','Status','Source','Package','Name','Email','Phone','Peo
 const TABS = {
   Questionnaires: ['id','title','intro','questions_json','updated'],
   Sends: ['token','qid','q_title','booking_id','name','phone','status','sent_at','opened_at','completed_at','twilio_sid','twilio_status','error'],
-  Responses: ['token','qid','q_title','booking_id','name','submitted_at','answers_json']
+  Responses: ['token','qid','q_title','booking_id','name','submitted_at','answers_json'],
+  Payments: ['id','booking_id','name','phone','email','amount','note','channel','status','requested_at','paid_at','sms_status','email_status','link']
 };
+const DEFAULT_VENMO = 'Macy-Bower';
+const DEFAULT_PAY_SMS = 'Hi {first}! This is Macy with Mae Lynn Photography. Your {note} is ${amount}. You can pay with Venmo here: {link} (or {link2}). Thank you!';
+const DEFAULT_PAY_SUBJECT = 'Mae Lynn Photography - {note} (${amount})';
+const DEFAULT_PAY_EMAIL = 'Hi {first},\n\nThank you for booking with Mae Lynn Photography! Your {note} is ${amount}.\n\nPay with Venmo: {link}\nIf that link does not open, use: {link2} (@{venmo})\n\nThank you!\nMacy';
 const STATUSES = ['new','confirmed','completed','cancelled'];
 const MAX_FAILS = 5, LOCK_MIN = 15, SESSION_SEC = 6 * 3600;
 
@@ -184,7 +189,7 @@ const ADMIN_ACTIONS = {
   logout: b => { CacheService.getScriptCache().remove('s:' + b.token); return { ok: true }; },
   list: () => withLock_(() => {
     const rows = readTab_('Bookings'); rows.forEach(o => { if (!o.id) { o.id = uid_(); writeRow_('Bookings', o._row, o); } });
-    return { ok: true, rows: rows, sends: readTab_('Sends'), responses: readTab_('Responses'), twilio: !!(prop_('TWILIO_SID') && prop_('TWILIO_TOKEN') && prop_('TWILIO_FROM')) };
+    return { ok: true, rows: rows, payments: readTab_('Payments'), pay: paySettings_(), sends: readTab_('Sends'), responses: readTab_('Responses'), twilio: !!(prop_('TWILIO_SID') && prop_('TWILIO_TOKEN') && prop_('TWILIO_FROM')) };
   }),
   create: b => withLock_(() => { const d = b.data || {}, o = {}; COLS.forEach(k => o[k] = d[k] || ''); o.id = uid_(); o.received = now_(); o.source = d.source || 'admin';
     if (STATUSES.indexOf(o.status) < 0) o.status = 'new'; append_('Bookings', o); return { ok: true, id: o.id }; }),
@@ -205,6 +210,14 @@ const ADMIN_ACTIONS = {
     if (o) writeRow_('Questionnaires', o._row, rec); else append_('Questionnaires', rec); return { ok: true, id: rec.id }; }),
   deleteQ: b => withLock_(() => { const o = findBy_('Questionnaires', 'id', String(b.id)); if (o) tab_('Questionnaires').deleteRow(o._row); return { ok: true }; }),
   sendQ: b => sendQ_(b),
+  payRequest: b => payRequest_(b),
+  payUpdate: b => withLock_(() => { const o = findBy_('Payments', 'id', String(b.id)); if (!o) return { ok: false, error: 'not found' };
+    if (['requested', 'paid', 'cancelled'].indexOf(b.status) >= 0) { o.status = b.status; o.paid_at = b.status === 'paid' ? now_() : ''; }
+    if (b.amount !== undefined) o.amount = money_(b.amount); writeRow_('Payments', o._row, o); return { ok: true }; }),
+  payDelete: b => withLock_(() => { const o = findBy_('Payments', 'id', String(b.id)); if (o) tab_('Payments').deleteRow(o._row); return { ok: true }; }),
+  savePaySettings: b => withLock_(() => { const c = getConfig_() || {}; const d = b.settings || {};
+    ['venmo_user', 'pay_sms_template', 'pay_email_subject', 'pay_email_template'].forEach(k => { if (d[k] !== undefined) c[k] = String(d[k]).slice(0, 2000); });
+    c.venmo_user = String(c.venmo_user || DEFAULT_VENMO).replace(/^@/, '').trim(); saveConfig_(c); return { ok: true, pay: paySettings_() }; }),
   refreshSends: () => withLock_(() => { const s = readTab_('Sends'); s.forEach(x => { if (x.twilio_sid && ['delivered', 'undelivered', 'failed'].indexOf(x.twilio_status) < 0) { const st = twilioStatus_(x.twilio_sid); if (st && st !== x.twilio_status) { x.twilio_status = st; writeRow_('Sends', x._row, x); } } }); return { ok: true, sends: readTab_('Sends') }; })
 };
 function sendQ_(b) {
@@ -219,4 +232,28 @@ function sendQ_(b) {
   const rec = { token: token, qid: q.id, q_title: q.title, booking_id: bid, name: name, phone: to, status: r.ok ? 'sent' : 'failed', sent_at: now_(), opened_at: '', completed_at: '', twilio_sid: r.sid || '', twilio_status: r.status || '', error: r.ok ? '' : r.error };
   withLock_(() => append_('Sends', rec));
   return r.ok ? { ok: true, link: link } : { ok: false, error: r.error, link: link };
+}
+
+
+/* ---------- Venmo payment requests ---------- */
+function paySettings_() { const c = getConfig_() || {};
+  return { venmo_user: c.venmo_user || DEFAULT_VENMO, pay_sms_template: c.pay_sms_template || DEFAULT_PAY_SMS, pay_email_subject: c.pay_email_subject || DEFAULT_PAY_SUBJECT, pay_email_template: c.pay_email_template || DEFAULT_PAY_EMAIL }; }
+function money_(v) { const n = Math.round(parseFloat(String(v).replace(/[^\d.]/g, '')) * 100) / 100; return isFinite(n) && n > 0 ? n.toFixed(2) : ''; }
+function venmoLinks_(user, amount, note) { return { link: 'https://venmo.com/' + encodeURIComponent(user) + '?txn=pay&amount=' + amount + '&note=' + encodeURIComponent(note), link2: 'https://account.venmo.com/u/' + encodeURIComponent(user) }; }
+function fill_(t, v) { return String(t).replace(/\{(\w+)\}/g, (m, k) => v[k] != null ? v[k] : m); }
+function payRequest_(b) {
+  const st = paySettings_(); let name = String(b.name || ''), phone = String(b.phone || ''), email = String(b.email || ''), bid = String(b.bookingId || '');
+  if (bid) { const bk = findBy_('Bookings', 'id', bid); if (!bk) return { ok: false, error: 'Booking not found.' }; name = name || bk.name; phone = phone || bk.phone; email = email || bk.email; }
+  const amount = money_(b.amount); if (!amount) return { ok: false, error: 'Enter an amount.' };
+  const note = String(b.note || 'Payment').slice(0, 200), L = venmoLinks_(st.venmo_user, amount, note);
+  const v = { name: name, first: name.split(' ')[0] || 'there', amount: amount, note: note, link: L.link, link2: L.link2, venmo: st.venmo_user };
+  if (!b.sendSms && !b.sendEmail) return { ok: false, error: 'Pick text and/or email.' };
+  let smsStatus = '', emailStatus = '', anyOk = false;
+  if (b.sendSms) { const to = e164_(phone); if (!to) smsStatus = 'failed: no valid phone'; else { const r = sms_(to, fill_(b.smsText || st.pay_sms_template, v)); smsStatus = r.ok ? 'sent' : 'failed: ' + r.error; anyOk = anyOk || r.ok; } }
+  if (b.sendEmail) { if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) emailStatus = 'failed: no valid email';
+    else { try { MailApp.sendEmail({ to: email, subject: fill_(b.emailSubject || st.pay_email_subject, v), body: fill_(b.emailText || st.pay_email_template, v), name: 'Mae Lynn Photography' }); emailStatus = 'sent'; anyOk = true; } catch (err) { emailStatus = 'failed: ' + err; } } }
+  const rec = { id: uid_(), booking_id: bid, name: name, phone: phone, email: email, amount: amount, note: note, channel: [b.sendSms ? 'text' : '', b.sendEmail ? 'email' : ''].filter(String).join('+'),
+    status: 'requested', requested_at: now_(), paid_at: '', sms_status: smsStatus, email_status: emailStatus, link: L.link };
+  withLock_(() => append_('Payments', rec));
+  return { ok: anyOk, error: anyOk ? '' : [smsStatus, emailStatus].filter(String).join('; '), sms_status: smsStatus, email_status: emailStatus, link: L.link };
 }

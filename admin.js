@@ -1,15 +1,15 @@
 /* Mae Lynn Photos admin. All data calls go to the Apps Script backend, which re-checks the session on every call. */
-const esc=MLP_esc;let B=[],SENDS=[],RESP=[],QS=[],CFG=null,TW=false,TAB='bookings',cm=new Date();cm.setDate(1);
+const esc=MLP_esc;let PAYS=[],PAYS_SET={venmo_user:'Macy-Bower'},B=[],SENDS=[],RESP=[],QS=[],CFG=null,TW=false,TAB='bookings',cm=new Date();cm.setDate(1);
 const today=(()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')})();
 let TOK=sessionStorage.getItem('mlp_tok')||'';
 async function api(o){const r=await fetch(window.MLP_FORM_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({...o,token:TOK})});const j=await r.json();
  if(j.error=='auth'){TOK='';sessionStorage.removeItem('mlp_tok');showPad('Session expired, enter PIN again.');throw 'auth'}if(!j.ok&&!o.quiet)alert(j.error||'Error');return j}
-async function load(){const j=await api({action:'list'});B=(j.rows||[]).reverse();SENDS=(j.sends||[]).reverse();RESP=j.responses||[];TW=j.twilio;
+async function load(){const j=await api({action:'list'});B=(j.rows||[]).reverse();SENDS=(j.sends||[]).reverse();RESP=j.responses||[];TW=j.twilio;PAYS=(j.payments||[]).reverse();if(j.pay)PAYS_SET=j.pay;
  const ps=[...new Set(B.map(b=>b.package).filter(Boolean))],fp=document.getElementById('fp'),cur=fp.value;fp.innerHTML='<option value="">All types</option>'+ps.map(p=>`<option>${esc(p)}</option>`).join('');fp.value=cur;render()}
-const TABS=[['bookings','Bookings'],['calendar','Calendar'],['bookpage','Book-a-Session Page'],['quest','Questionnaires'],['texts','Texts sent']];
+const TABS=[['bookings','Bookings'],['calendar','Calendar'],['bookpage','Book-a-Session Page'],['quest','Questionnaires'],['texts','Texts sent'],['payments','Payments']];
 function tab(t){TAB=t;document.getElementById('tabs').innerHTML=TABS.map(([k,n])=>`<button class="btn ${k==t?'on':''}" onclick="tab('${k}')">${n}</button>`).join('');
  document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('on',p.id=='p-'+t));
- if(t=='calendar')cal();if(t=='bookpage')bookPage();if(t=='quest')questPanel();if(t=='texts')textsPanel()}
+ if(t=='calendar')cal();if(t=='bookpage')bookPage();if(t=='quest')questPanel();if(t=='texts')textsPanel();if(t=='payments')payPanel()}
 function fmtD(d,t){if(!d)return'—';const x=new Date(d+'T12:00');if(isNaN(x))return esc(d);return x.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'})+(t?' '+fmtT(t):'')}
 function fmtT(t){const m=String(t).match(/^(\d{1,2}):(\d{2})/);if(!m)return esc(t);const h=+m[1];return((h%12)||12)+':'+m[2]+(h<12?' AM':' PM')}
 function render(){const q=document.getElementById('q').value.toLowerCase(),fs=document.getElementById('fs').value,fp=document.getElementById('fp').value,fw=document.getElementById('fw').value;
@@ -45,7 +45,9 @@ function show(id){const b=byId(id);if(!b)return;let extra={};try{extra=JSON.pars
  <h3 style="margin-top:22px">Questionnaires</h3>
  ${ss.map(s=>`<div class="cardx" style="background:var(--soft)"><b>${esc(s.q_title)}</b> → ${esc(s.phone)} · sent ${esc(s.sent_at)} ${sendStatus(s)}${s.error?`<br><small style="color:#b33">${esc(s.error)}</small>`:''}</div>`).join('')||'<p>None sent yet.</p>'}
  ${rs.map(r=>{let a={};try{a=JSON.parse(r.answers_json)}catch(e){}return `<div class="cardx" style="border:1px solid var(--line)"><h4 style="margin:0">${esc(r.q_title)} — answers</h4><small>Submitted ${esc(r.submitted_at)}</small><table>${Object.entries(a).map(([k,v])=>`<tr><th style="width:42%">${esc(k)}</th><td>${esc(v)}</td></tr>`).join('')}</table></div>`}).join('')}
- <button class="btn dark" onclick="sendDlg('${id}')">Text a questionnaire</button>`)}
+ <button class="btn dark" onclick="sendDlg('${id}')">Text a questionnaire</button>
+ <h3 style="margin-top:22px">Payments</h3>${PAYS.filter(p=>p.booking_id==id).map(payLine).join('')||'<p>No payment requests yet.</p>'}
+ <button class="btn dark" onclick="payDlg('${id}')">Request payment (Venmo)</button>`)}
 function openEdit(b){const f=['package','name','email','phone','people','date','time','alt_date','outfits','location','addons','outside_tlh','occasion','found','notes'];
  const ty={date:'date',alt_date:'date',time:'time',people:'number',email:'email'};
  openD(`<h2>${b.id?'Edit booking':'Add booking'}</h2><form id="ef" class="f">${f.map(k=>k=='notes'?`<div class="full"><label>${LBL[k]}</label><textarea name="${k}">${esc(b[k])}</textarea></div>`:`<div><label>${LBL[k]}</label><input type="${ty[k]||'text'}" name="${k}" value="${esc(b[k])}"></div>`).join('')}
@@ -155,3 +157,46 @@ async function key(k){if(KP.style.display=='none')return;if(k=='⌫')pv=pv.slice
 document.addEventListener('keydown',e=>{if(KP.style.display=='none')return;if(/^\d$/.test(e.key))key(e.key);if(e.key=='Backspace')key('⌫')});
 window.addEventListener('beforeunload',e=>{if(DIRTY){e.preventDefault();e.returnValue=''}});
 if(TOK)start().catch(()=>{});else showPad('');
+/* ---------- Payments (Venmo requests) ---------- */
+const num=v=>{const n=parseFloat(String(v||'').replace(/[^\d.]/g,''));return isFinite(n)?n:0};
+const money=n=>'$'+(+n||0).toFixed(2);
+function venmoLink(amt,note){const u=encodeURIComponent(PAYS_SET.venmo_user||'Macy-Bower');return `https://venmo.com/${u}?txn=pay&amount=${(+amt).toFixed(2)}&note=${encodeURIComponent(note)}`}
+function payLine(p){return `<div class="cardx" style="background:var(--soft)"><div class="row"><div><b>${money(p.amount)}</b> · ${esc(p.note)} · ${esc(p.channel)} · ${esc(p.requested_at)}
+ <span class="pill ${p.status=='paid'?'completed':p.status=='cancelled'?'cancelled':'confirmed'}">${esc(p.status)}</span>${p.paid_at?` <small>paid ${esc(p.paid_at)}</small>`:''}
+ ${[p.sms_status&&('text: '+p.sms_status),p.email_status&&('email: '+p.email_status)].filter(Boolean).map(x=>`<br><small style="color:${/fail/.test(x)?'#b33':'inherit'}">${esc(x)}</small>`).join('')}</div>
+ <span style="flex:0 0 auto">${p.status!='paid'?`<button class="btn mini" onclick="payStatus('${p.id}','paid')">Mark paid</button>`:`<button class="btn mini" onclick="payStatus('${p.id}','requested')">Unmark</button>`}
+ ${p.status!='cancelled'?`<button class="btn mini" onclick="payStatus('${p.id}','cancelled')">Cancel</button>`:''} <button class="btn mini" onclick="navigator.clipboard.writeText('${esc(p.link)}');this.textContent='Copied'">Copy link</button></span></div></div>`}
+async function payStatus(id,status){const j=await api({action:'payUpdate',id,status});if(j.ok){await load();if(document.getElementById('dlg').style.display=='flex'){const p=PAYS.find(x=>x.id==id);if(p&&p.booking_id)show(p.booking_id)}if(TAB=='payments')payPanel()}}
+async function suggest(b){if(!b)return {amt:'',note:'Deposit'};const c=CFG||await MLP_loadConfig();const pk=(c.packages||[]).find(p=>p.name==b.package);
+ let t=pk?num(pk.price):0;(String(b.addons||'').match(/\$\s?[\d,.]+/g)||[]).forEach(x=>t+=num(x));
+ const paid=PAYS.filter(p=>p.booking_id==b.id&&p.status=='paid').reduce((s,p)=>s+num(p.amount),0);
+ return {total:t,paid,amt:t?(t-paid).toFixed(2):'',note:(paid?'Balance':'Payment')+(b.package?' - '+b.package:'')}}
+async function payDlg(bid){const b=bid?byId(bid):null,sg=await suggest(b),S=PAYS_SET;
+ openD(`<h2>Request payment (Venmo @${esc(S.venmo_user)})</h2>${b?`<p>For <b>${esc(b.name)}</b> · ${esc(b.package)}${sg.total?` · package + add-ons ${money(sg.total)}, paid so far ${money(sg.paid)}`:''}</p>`:''}
+ <form id="pf" class="f"><div><label>Amount *</label><input name="amount" required inputmode="decimal" value="${esc(sg.amt)}"></div>
+ <div><label>Note</label><input name="note" value="${esc(sg.note)}" list="notes"><datalist id="notes"><option>Deposit${b&&b.package?' - '+esc(b.package):''}</option><option>Balance${b&&b.package?' - '+esc(b.package):''}</option><option>Payment</option></datalist></div>
+ ${sg.total?`<div class="full row" style="gap:6px"><span style="flex:0 0 auto">Quick fill:</span><button type="button" class="btn mini" onclick="pf.amount.value='${(sg.total/2).toFixed(2)}';pf.note.value='Deposit - ${esc(b.package).replace(/'/g,'')}'">50% deposit</button><button type="button" class="btn mini" onclick="pf.amount.value='${(sg.total-sg.paid).toFixed(2)}';pf.note.value='Balance - ${esc(b.package).replace(/'/g,'')}'">Remaining balance</button><button type="button" class="btn mini" onclick="pf.amount.value='${sg.total.toFixed(2)}';pf.note.value='Payment - ${esc(b.package).replace(/'/g,'')}'">Full amount</button></div>`:''}
+ <div><label>Name</label><input name="name" value="${esc(b?b.name:'')}"></div><div><label>Phone</label><input name="phone" type="tel" value="${esc(b?b.phone:'')}"></div>
+ <div class="full"><label>Email</label><input name="email" type="email" value="${esc(b?b.email:'')}"></div>
+ <div class="full checks"><label><input type="checkbox" name="sms" ${b&&b.phone?'checked':''}> Send by text${TW?'':' (Twilio not set up yet)'}</label><label><input type="checkbox" name="em" ${b&&b.email?'checked':''}> Send by email (from your Gmail)</label></div>
+ <div class="full"><small>Link preview: <a id="lp" target="_blank"></a></small></div>
+ <div class="full bar"><button class="btn dark">Send request</button><button type="button" class="btn" onclick="${bid?`show('${bid}')`:'closeD()'}">Cancel</button></div><p id="pm" class="full"></p></form>`);
+ const f=document.getElementById('pf');window.pf=f;const lp=()=>{const l=venmoLink(num(f.amount.value),f.note.value);const a=document.getElementById('lp');a.href=l;a.textContent=l};f.oninput=lp;lp();
+ f.querySelectorAll('.btn.mini').forEach(x=>x.addEventListener('click',lp));
+ f.onsubmit=async e=>{e.preventDefault();const d=Object.fromEntries(new FormData(f)),btn=f.querySelector('button.dark');if(!d.sms&&!d.em)return alert('Pick text and/or email.');
+  btn.disabled=true;btn.textContent='Sending…';const j=await api({action:'payRequest',bookingId:bid,amount:d.amount,note:d.note,name:d.name,phone:d.phone,email:d.email,sendSms:!!d.sms,sendEmail:!!d.em,quiet:true});
+  await load();document.getElementById('pm').innerHTML=j.ok?`<b style="color:#2e7a3c">Request sent.</b> ${[j.sms_status&&'Text: '+esc(j.sms_status),j.email_status&&'Email: '+esc(j.email_status)].filter(Boolean).join(' · ')}`:`<b style="color:#b33">${esc(j.error||'Not sent')}</b>`;
+  btn.disabled=false;btn.textContent='Send another';if(TAB=='payments')payPanel()}}
+function payPanel(){const P=document.getElementById('p-payments'),S=PAYS_SET,act=PAYS.filter(p=>p.status!='cancelled');
+ const tot=s=>act.filter(p=>!s||p.status==s).reduce((a,p)=>a+num(p.amount),0);
+ P.innerHTML=`<div class="row"><h2 style="margin:0">Payments</h2><span style="flex:0 0 auto"><button class="btn dark" onclick="payDlg('')">+ New payment request</button></span></div>
+ <div class="stats" style="margin:14px 0">${[['Requested (total)',money(tot())],['Paid',money(tot('paid'))],['Outstanding',money(tot('requested'))],['Requests',act.length]].map(([k,v])=>`<div class="stat">${k}<b>${v}</b></div>`).join('')}</div>
+ <div style="overflow:auto"><table><thead><tr><th>Requested</th><th>Customer</th><th>Amount</th><th>Note</th><th class="hide-m">Sent by</th><th>Status</th><th></th></tr></thead><tbody>
+ ${PAYS.map(p=>`<tr ${p.booking_id?`class="r" onclick="show('${p.booking_id}')"`:''}><td>${esc(p.requested_at)}</td><td>${esc(p.name)}<br><small>${esc(p.phone||p.email)}</small></td><td><b>${money(p.amount)}</b></td><td>${esc(p.note)}</td>
+ <td class="hide-m">${esc(p.channel)}${/fail/.test(p.sms_status+p.email_status)?'<br><small style="color:#b33">'+esc([p.sms_status,p.email_status].filter(Boolean).join('; '))+'</small>':''}</td><td><span class="pill ${p.status=='paid'?'completed':p.status=='cancelled'?'cancelled':'confirmed'}">${esc(p.status)}</span></td>
+ <td onclick="event.stopPropagation()">${p.status!='paid'?`<button class="btn mini" onclick="payStatus('${p.id}','paid')">Paid</button>`:`<button class="btn mini" onclick="payStatus('${p.id}','requested')">Unmark</button>`}</td></tr>`).join('')||'<tr><td colspan=7 style="text-align:center;padding:30px">No payment requests yet.</td></tr>'}</tbody></table></div>
+ <div class="cardx ed" style="margin-top:20px"><h3>Venmo & message settings</h3><p style="margin-top:0">Placeholders: {first} {name} {amount} {note} {link} {link2} {venmo}</p>
+ <label>Venmo username</label><input id="vu" value="${esc(S.venmo_user)}"><label>Text message</label><textarea id="vs" rows="3">${esc(S.pay_sms_template)}</textarea>
+ <label>Email subject</label><input id="ves" value="${esc(S.pay_email_subject)}"><label>Email message</label><textarea id="vb" rows="7">${esc(S.pay_email_template)}</textarea>
+ <button class="btn dark" onclick="savePay()">Save settings</button></div>`}
+async function savePay(){const j=await api({action:'savePaySettings',settings:{venmo_user:vu.value,pay_sms_template:vs.value,pay_email_subject:ves.value,pay_email_template:vb.value}});if(j.ok){PAYS_SET=j.pay;CFG=null;alert('Saved.');payPanel()}}

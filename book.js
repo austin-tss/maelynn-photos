@@ -25,6 +25,13 @@
     if(!window.MLP_FORM_URL){alert('Online booking is being set up. Please message @maelynnphotos on Instagram or call/text 850-661-8123.');return}
     btn.disabled=true;btn.textContent='Sending...';
     try{await fetch(window.MLP_FORM_URL,{method:'POST',mode:'no-cors',body:new URLSearchParams(fd)});
-      root.innerHTML=`<div class="ok"><h5>Request received</h5><h1>${e(c.success_title||'Thank you!')}</h1><p>${e(c.success_text||'')}</p><p><a class="btn" href="index.html">Back home</a></p></div>`;scrollTo(0,0)}
+      const pk=(c.packages||[]).find(p=>p.name==fd.get('package'));const num=v=>{const n=parseFloat(String(v||'').replace(/[^\d.]/g,''));return isFinite(n)?n:0};
+      let amt=pk?num(pk.price):0;fd.getAll('addons').forEach(a=>(String(a).match(/\$\s?[\d,.]+/g)||[]).forEach(x=>amt+=num(x)));
+      const vu=encodeURIComponent(c.venmo_user||'Macy-Bower'),note=(fd.get('package')||'Photo session')+' - '+(fd.get('name')||'');
+      const vl=`https://venmo.com/${vu}?txn=pay${amt?'&amount='+amt.toFixed(2):''}&note=${encodeURIComponent(note)}`;
+      root.innerHTML=`<div class="ok"><h5>Request received</h5><h1>${e(c.success_title||'Thank you!')}</h1><p>${e(c.success_text||'')}</p>
+      <div class="notice" style="max-width:520px;margin:28px auto;text-align:center"><h5>Ready to pay?</h5><p style="margin:6px 0 14px">${amt?`Session total: <b>$${amt.toFixed(2)}</b>. `:''}You can pay Macy on Venmo (@${e(c.venmo_user||'Macy-Bower')}), or wait for her to confirm your date and send a request.</p>
+      <a class="btn dark" id="venmo" href="${e(vl)}" target="_blank" rel="noopener">Pay with Venmo</a><p style="font-size:13px;margin-top:10px">Link not opening? <a href="https://account.venmo.com/u/${vu}" target="_blank" rel="noopener"><u>venmo.com/u/${e(c.venmo_user||'Macy-Bower')}</u></a></p></div>
+      <p><a class="btn" href="index.html">Back home</a></p></div>`;scrollTo(0,0)}
     catch(x){btn.disabled=false;btn.textContent='Try again';alert('Something went wrong. Please message @maelynnphotos on Instagram or call/text 850-661-8123.')}});
 })();
