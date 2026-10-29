@@ -144,11 +144,11 @@ async function refreshSends(){const j=await api({action:'refreshSends'});if(j.ok
 /* ---------- PIN keypad ---------- */
 function logout(){api({action:'logout',quiet:true}).catch(()=>{});TOK='';sessionStorage.removeItem('mlp_tok');showPad('')}
 let pv='';const PD=document.getElementById('pd'),MS=document.getElementById('msg'),KP=document.getElementById('kp');
-function drawPad(){PD.innerHTML=Array.from({length:6},(_,i)=>`<i class="${i<pv.length?'f':''}"></i>`).join('')}
+function drawPad(){PD.innerHTML=Array.from({length:4},(_,i)=>`<i class="${i<pv.length?'f':''}"></i>`).join('')}
 function showPad(m){KP.style.display='grid';MS.textContent=m||'';pv='';drawPad()}
 async function start(){KP.style.display='none';tab(TAB);await load()}
-async function key(k){if(KP.style.display=='none')return;if(k=='⌫')pv=pv.slice(0,-1);else if(k=='C')pv='';else if(pv.length<6)pv+=k;drawPad();
- if(pv.length==6){if(!window.MLP_FORM_URL){showPad('Backend not connected yet.');return}MS.textContent='Checking…';
+async function key(k){if(KP.style.display=='none')return;if(k=='⌫')pv=pv.slice(0,-1);else if(k=='C')pv='';else if(pv.length<4)pv+=k;drawPad();
+ if(pv.length==4){if(!window.MLP_FORM_URL){showPad('Backend not connected yet.');return}MS.textContent='Checking…';
   try{const r=await fetch(window.MLP_FORM_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'login',pin:pv})});const j=await r.json();
    if(j.ok){TOK=j.token;sessionStorage.setItem('mlp_tok',TOK);start()}
    else showPad(j.error=='locked'?`Too many wrong tries. Locked for ${j.minutes} min.`:j.error=='wrong'?`Wrong PIN. ${j.left} tries left.`:(j.error||'Error'))}
